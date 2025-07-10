@@ -21,6 +21,34 @@ const upload = multer({
   },
 });
 
+// Configure multer for video uploads
+const videoUpload = multer({
+  storage: storage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB for videos
+  fileFilter: (req, file, cb) => {
+    // Accept video files
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'), false);
+    }
+  },
+});
+
+// Configure multer for mixed media uploads (images and videos)
+const mixedUpload = multer({
+  storage: storage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB for videos
+  fileFilter: (req, file, cb) => {
+    // Accept both image and video files
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image and video files are allowed'), false);
+    }
+  },
+});
+
 // Validation middleware
 const validate = (schema) => (req, res, next) => {
   try {
@@ -87,6 +115,14 @@ router.post('/',
   portfolioController.createProject
 );
 
+// Create new project with mixed media (images and/or videos)
+router.post('/with-media', 
+  authenticateToken, requireAdmin,
+  mixedUpload.array('media', 10),
+  validate(portfolioSchema),
+  portfolioController.createProjectWithMedia
+);
+
 // Update project (with optional image upload)
 router.put('/:projectId',
   upload.single('image'),
@@ -105,5 +141,46 @@ router.patch('/:projectId/publish', portfolioController.togglePublishStatus);
 
 // Delete a specific image from a project (admin only)
 router.delete('/:projectId/images/:imageId', authenticateToken, requireAdmin, portfolioController.deleteProjectImage);
+
+// Video management routes
+// Upload single video to project (admin only)
+router.post('/:projectId/videos', 
+  authenticateToken, 
+  requireAdmin,
+  videoUpload.single('video'),
+  portfolioController.uploadProjectVideo
+);
+
+// Get project videos (public)
+router.get('/:projectId/videos', portfolioController.getProjectVideos);
+
+// Update project video (admin only)
+router.put('/videos/:videoId', 
+  authenticateToken, 
+  requireAdmin,
+  portfolioController.updateProjectVideo
+);
+
+// Delete project video (admin only)
+router.delete('/videos/:videoId', 
+  authenticateToken, 
+  requireAdmin,
+  portfolioController.deleteProjectVideo
+);
+
+// Reorder project videos (admin only)
+router.put('/:projectId/videos/reorder', 
+  authenticateToken, 
+  requireAdmin,
+  portfolioController.reorderProjectVideos
+);
+
+// Bulk upload videos to project (admin only)
+router.post('/:projectId/videos/bulk', 
+  authenticateToken, 
+  requireAdmin,
+  videoUpload.array('videos', 10),
+  portfolioController.bulkUploadProjectVideos
+);
 
 module.exports = router; 

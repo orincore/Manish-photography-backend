@@ -75,7 +75,7 @@ class HomepageService {
   }
 
   // Create new homepage element
-  async createHomepageElement(elementData, userId, mediaFile = null) {
+  async createHomepageElement(elementData, userId, mediaFile = null, uploadId = null) {
     try {
       const { 
         type, 
@@ -111,7 +111,17 @@ class HomepageService {
         isVideo = videoExtensions.includes(fileExtension);
 
         if (isVideo) {
-          uploadResult = await cloudinaryService.uploadVideo(mediaFile, { folder: 'homepage-elements' });
+          uploadResult = await cloudinaryService.uploadVideo(mediaFile, { 
+            folder: 'homepage-elements',
+            onProgress: uploadId ? (progress) => {
+              if (global.io) {
+                global.io.to(uploadId).emit('upload-progress', {
+                  uploadId,
+                  ...progress
+                });
+              }
+            } : null
+          });
           mediaType = 'video';
         } else {
           uploadResult = await cloudinaryService.uploadImage(mediaFile, { 
@@ -130,9 +140,9 @@ class HomepageService {
         if (isVideo) {
           // Set default video settings for hero videos
           if (type === 'hero' || type === 'hero-video') {
-            video_autoplay = video_autoplay !== undefined ? video_autoplay : true;
-            video_muted = video_muted !== undefined ? video_muted : true;
-            video_loop = video_loop !== undefined ? video_loop : true;
+            elementData.video_autoplay = video_autoplay !== undefined ? video_autoplay : true;
+            elementData.video_muted = video_muted !== undefined ? video_muted : true;
+            elementData.video_loop = video_loop !== undefined ? video_loop : true;
           }
         }
       }
@@ -149,35 +159,50 @@ class HomepageService {
         finalOrderIndex = lastElement ? lastElement.order_index + 1 : 1;
       }
 
+      // Prepare insert data with proper type conversion
+      const insertData = {
+        type,
+        title,
+        subtitle,
+        description,
+        media_url: mediaUrl,
+        media_public_id: mediaPublicId,
+        media_type: mediaType,
+        order_index: finalOrderIndex,
+        is_active: is_active !== undefined ? Boolean(is_active) : true,
+        is_featured: is_featured !== undefined ? Boolean(is_featured) : false,
+        video_autoplay: elementData.video_autoplay !== undefined ? Boolean(elementData.video_autoplay) : false,
+        video_muted: elementData.video_muted !== undefined ? Boolean(elementData.video_muted) : true,
+        video_loop: elementData.video_loop !== undefined ? Boolean(elementData.video_loop) : false,
+        video_poster: video_poster || (isVideo && uploadResult ? uploadResult.thumbnailUrl : null),
+        video_duration: isVideo && uploadResult && uploadResult.duration ? Math.round(parseFloat(uploadResult.duration)) : null,
+        video_thumbnail_url: isVideo && uploadResult ? uploadResult.thumbnailUrl : null,
+        created_by: userId
+      };
+
+      console.log('📝 Inserting homepage element with data:', {
+        type,
+        title,
+        subtitle,
+        media_type: mediaType,
+        video_duration: insertData.video_duration,
+        is_video: isVideo
+      });
+
       // Create element
       const { data: element, error } = await supabase
         .from('homepage_elements')
-        .insert({
-          type,
-          title,
-          subtitle,
-          description,
-          media_url: mediaUrl,
-          media_public_id: mediaPublicId,
-          media_type: mediaType,
-          order_index: finalOrderIndex,
-          is_active: is_active !== undefined ? is_active : true,
-          is_featured: is_featured !== undefined ? is_featured : false,
-          video_autoplay: video_autoplay !== undefined ? video_autoplay : false,
-          video_muted: video_muted !== undefined ? video_muted : true,
-          video_loop: video_loop !== undefined ? video_loop : false,
-          video_poster: video_poster || (isVideo && uploadResult ? uploadResult.thumbnailUrl : null),
-          video_duration: isVideo && uploadResult ? uploadResult.duration : null,
-          video_thumbnail_url: isVideo && uploadResult ? uploadResult.thumbnailUrl : null,
-          created_by: userId
-        })
+        .insert(insertData)
         .select(`
           *,
           users!homepage_elements_created_by_fkey(name, email)
         `)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Database insert error:', error);
+        throw error;
+      }
 
       return element;
     } catch (error) {
@@ -189,9 +214,34 @@ class HomepageService {
   // Update homepage element
   async updateHomepageElement(elementId, updateData) {
     try {
+      // Validate element exists first
+      const { data: existingElement, error: fetchError } = await supabase
+        .from('homepage_elements')
+        .select('type, media_type')
+        .eq('id', elementId)
+        .single();
+
+      if (fetchError || !existingElement) {
+        throw new NotFoundError('Homepage element not found');
+      }
+
+      // Handle video-specific field updates
+      const updateFields = { ...updateData };
+      
+      // Only allow video fields for video elements
+      if (existingElement.media_type !== 'video') {
+        delete updateFields.video_autoplay;
+        delete updateFields.video_muted;
+        delete updateFields.video_loop;
+        delete updateFields.video_poster;
+        delete updateFields.video_duration;
+        delete updateFields.video_thumbnail_url;
+      }
+
+      // Update the element
       const { data: element, error } = await supabase
         .from('homepage_elements')
-        .update(updateData)
+        .update(updateFields)
         .eq('id', elementId)
         .select(`
           *,
@@ -199,8 +249,8 @@ class HomepageService {
         `)
         .single();
 
-      if (error || !element) {
-        throw new NotFoundError('Homepage element not found');
+      if (error) {
+        throw new Error('Failed to update homepage element: ' + error.message);
       }
 
       return element;

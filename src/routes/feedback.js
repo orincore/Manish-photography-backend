@@ -28,6 +28,7 @@ router.get('/:feedbackId', feedbackController.getFeedbackById);
 // Admin routes (require admin authentication) - must come before client routes
 router.get('/admin/all', authenticateToken, requireAdmin, feedbackController.getAllFeedback);
 router.get('/admin/stats', authenticateToken, requireAdmin, feedbackController.getFeedbackStats);
+router.get('/admin/stats/detailed', authenticateToken, requireAdmin, feedbackController.getAdminFeedbackStats);
 
 router.put('/:feedbackId', authenticateToken, requireAdmin, validate(updateFeedbackSchema), feedbackController.updateFeedback);
 router.delete('/:feedbackId', authenticateToken, requireAdmin, feedbackController.deleteFeedback);

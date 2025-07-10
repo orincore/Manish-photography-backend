@@ -169,8 +169,8 @@ class PortfolioService {
             location,
             portfolio_categories(
               id,
-              name,
-              slug
+            name,
+            slug
             )
           )
         `)
@@ -185,10 +185,20 @@ class PortfolioService {
       const { data: images, error: imagesError } = await supabase
         .from('portfolio_project_images')
         .select('*')
-        .eq('project_id', projectId);
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true });
       if (imagesError) throw imagesError;
 
-      return { ...project, images };
+      // Fetch all videos for this project
+      const { data: videos, error: videosError } = await supabase
+        .from('portfolio_project_videos')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('is_active', true)
+        .order('order_index', { ascending: true });
+      if (videosError) throw videosError;
+
+      return { ...project, images, videos };
     } catch (error) {
       if (error.name === 'NotFoundError') throw error;
       throw new Error('Failed to fetch project: ' + error.message);
@@ -301,58 +311,64 @@ class PortfolioService {
 
       // Upload all images and insert into portfolio_project_images
       const imageResults = [];
-      for (const file of imageFiles) {
-        let buffer = file.buffer;
-        let quality = 95;
-        // Compress if over 10MB, and keep compressing until under 10MB or quality too low
-        if (file.size > 10 * 1024 * 1024) {
-          let compressed = false;
-          while (!compressed && quality >= 20) { // Lowered minimum quality to 20
-            buffer = await sharp(file.buffer)
-              .resize({ width: 4000, withoutEnlargement: true })
-              .jpeg({ quality })
-              .toBuffer();
-            if (buffer.length <= 10 * 1024 * 1024) {
-              compressed = true;
-            } else {
-              quality -= 10;
+      if (imageFiles && imageFiles.length > 0) {
+        for (const file of imageFiles) {
+          let buffer = file.buffer;
+          let quality = 95;
+          // Compress if over 10MB, and keep compressing until under 10MB or quality too low
+          if (file.size > 10 * 1024 * 1024) {
+            let compressed = false;
+            while (!compressed && quality >= 20) { // Lowered minimum quality to 20
+              buffer = await sharp(file.buffer)
+                .resize({ width: 4000, withoutEnlargement: true })
+                .jpeg({ quality })
+                .toBuffer();
+              if (buffer.length <= 10 * 1024 * 1024) {
+                compressed = true;
+              } else {
+                quality -= 10;
+              }
+            }
+            if (buffer.length > 10 * 1024 * 1024) {
+              throw new ValidationError(`Image too large to upload even after compression. Final size: ${buffer.length} bytes. Please use a smaller image.`);
             }
           }
-          if (buffer.length > 10 * 1024 * 1024) {
-            throw new ValidationError(`Image too large to upload even after compression. Final size: ${buffer.length} bytes. Please use a smaller image.`);
-          }
+          // Upload using the (possibly compressed) buffer
+          const imageResult = await cloudinaryService.uploadImage({ ...file, buffer });
+          const thumbnailUrl = cloudinaryService.generateThumbnailUrl(imageResult.publicId);
+          imageResults.push({
+            project_id: project.id,
+            image_url: imageResult.url,
+            image_public_id: imageResult.publicId,
+            thumbnail_url: thumbnailUrl
+          });
         }
-        // Upload using the (possibly compressed) buffer
-        const imageResult = await cloudinaryService.uploadImage({ ...file, buffer });
-        const thumbnailUrl = cloudinaryService.generateThumbnailUrl(imageResult.publicId);
-        imageResults.push({
-          project_id: project.id,
-          image_url: imageResult.url,
-          image_public_id: imageResult.publicId,
-          thumbnail_url: thumbnailUrl
-        });
-      }
-      // Insert all images
-      const { data: images, error: imagesError } = await supabase
-        .from('portfolio_project_images')
-        .insert(imageResults)
-        .select('*');
-      if (imagesError) throw imagesError;
+        
+        // Insert all images
+        const { data: images, error: imagesError } = await supabase
+          .from('portfolio_project_images')
+          .insert(imageResults)
+          .select('*');
+        if (imagesError) throw imagesError;
 
-      // Optionally, set the first image as the main image in the project
-      if (images && images.length > 0) {
-        await supabase
-          .from('portfolio_projects')
-          .update({
-            image_url: images[0].image_url,
-            image_public_id: images[0].image_public_id,
-            thumbnail_url: images[0].thumbnail_url
-          })
-          .eq('id', project.id);
-      }
+        // Optionally, set the first image as the main image in the project
+        if (images && images.length > 0) {
+          await supabase
+            .from('portfolio_projects')
+            .update({
+              image_url: images[0].image_url,
+              image_public_id: images[0].image_public_id,
+              thumbnail_url: images[0].thumbnail_url
+            })
+            .eq('id', project.id);
+        }
 
-      // Return project with images
-      return { ...project, images };
+        // Return project with images
+        return { ...project, images };
+      } else {
+        // No images provided, return project without images
+        return { ...project, images: [] };
+      }
     } catch (error) {
       throw new Error('Failed to create project: ' + error.message);
     }
@@ -454,15 +470,27 @@ class PortfolioService {
       const { data: categories, error } = await supabase
         .from('portfolio_categories')
         .select(`
-          *,
+          id,
+          name,
+          slug,
+          description,
+          display_order,
+          is_active,
+          created_at,
+          updated_at,
           portfolio_subcategories(
             id,
             name,
             slug,
+            description,
             client_name,
             event_date,
             location,
             cover_image_url,
+            display_order,
+            is_active,
+            created_at,
+            updated_at,
             project_count:portfolio_projects(count)
           )
         `)
@@ -471,13 +499,39 @@ class PortfolioService {
 
       if (error) throw error;
 
-      // Always return all categories, even if no subcategories
-      const categoriesWithSubs = categories.map(cat => ({
-        ...cat,
-        portfolio_subcategories: cat.portfolio_subcategories || []
+      // Process categories and ensure proper data structure
+      const processedCategories = (categories || []).map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        display_order: cat.display_order,
+        is_active: cat.is_active,
+        created_at: cat.created_at,
+        updated_at: cat.updated_at,
+        portfolio_subcategories: (cat.portfolio_subcategories || [])
+          .filter(sub => sub.is_active !== false) // Only active subcategories
+          .map(sub => ({
+            id: sub.id,
+            name: sub.name,
+            slug: sub.slug,
+            description: sub.description,
+            client_name: sub.client_name,
+            event_date: sub.event_date,
+            location: sub.location,
+            cover_image_url: sub.cover_image_url,
+            display_order: sub.display_order,
+            is_active: sub.is_active,
+            created_at: sub.created_at,
+            updated_at: sub.updated_at,
+            project_count: Array.isArray(sub.project_count) 
+              ? (sub.project_count[0]?.count || 0)
+              : (sub.project_count || 0)
+          }))
+          .sort((a, b) => a.display_order - b.display_order)
       }));
 
-      return categoriesWithSubs;
+      return processedCategories;
     } catch (error) {
       throw new Error('Failed to fetch categories: ' + error.message);
     }
@@ -896,6 +950,189 @@ class PortfolioService {
       };
     } catch (error) {
       throw new Error('Failed to fetch projects by tags: ' + error.message);
+    }
+  }
+
+  // Upload video to project
+  async uploadProjectVideo(projectId, videoFile, videoData = {}) {
+    try {
+      console.log('📹 Uploading video to project:', { projectId, videoData });
+
+      // Validate project exists
+      const { data: project, error: projectError } = await supabase
+        .from('portfolio_projects')
+        .select('id')
+        .eq('id', projectId)
+        .single();
+
+      if (projectError || !project) {
+        throw new NotFoundError('Project not found');
+      }
+
+      // Upload video to Cloudinary
+      const videoResult = await cloudinaryService.uploadVideo(videoFile, {
+        resource_type: 'video',
+        folder: 'portfolio-videos',
+        ...videoData
+      });
+
+      console.log('✅ Video uploaded to Cloudinary:', videoResult.publicId);
+
+      // Get video duration
+      const duration = Math.round(parseFloat(videoResult.duration || 0));
+
+      // Prepare video data
+      const videoPayload = {
+        project_id: projectId,
+        video_url: videoResult.url,
+        video_public_id: videoResult.publicId,
+        video_thumbnail_url: videoResult.thumbnail_url,
+        video_duration: duration,
+        video_autoplay: videoData.video_autoplay || false,
+        video_loop: videoData.video_loop || false,
+        video_poster: videoData.video_poster || null,
+        order_index: videoData.order_index || 0
+      };
+
+      // Insert video into database
+      const { data: video, error: insertError } = await supabase
+        .from('portfolio_project_videos')
+        .insert(videoPayload)
+        .select('*')
+        .single();
+
+      if (insertError) {
+        // Clean up Cloudinary if database insert fails
+        await cloudinaryService.deleteVideo(videoResult.publicId);
+        throw insertError;
+      }
+
+      console.log('✅ Video saved to database:', video.id);
+      return video;
+    } catch (error) {
+      if (error.name === 'NotFoundError') throw error;
+      throw new Error('Failed to upload project video: ' + error.message);
+    }
+  }
+
+  // Get project videos
+  async getProjectVideos(projectId) {
+    try {
+      const { data: videos, error } = await supabase
+        .from('portfolio_project_videos')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('is_active', true)
+        .order('order_index', { ascending: true });
+
+      if (error) throw error;
+
+      return videos || [];
+    } catch (error) {
+      throw new Error('Failed to fetch project videos: ' + error.message);
+    }
+  }
+
+  // Update project video
+  async updateProjectVideo(videoId, updateData) {
+    try {
+      console.log('📹 Updating project video:', { videoId, updateData });
+
+      const { data: video, error } = await supabase
+        .from('portfolio_project_videos')
+        .update(updateData)
+        .eq('id', videoId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Video updated successfully');
+      return video;
+    } catch (error) {
+      throw new Error('Failed to update project video: ' + error.message);
+    }
+  }
+
+  // Delete project video
+  async deleteProjectVideo(videoId) {
+    try {
+      console.log('🗑️ Deleting project video:', videoId);
+
+      // Get video details before deletion
+      const { data: video, error: fetchError } = await supabase
+        .from('portfolio_project_videos')
+        .select('video_public_id')
+        .eq('id', videoId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete from database
+      const { error: deleteError } = await supabase
+        .from('portfolio_project_videos')
+        .delete()
+        .eq('id', videoId);
+
+      if (deleteError) throw deleteError;
+
+      // Delete from Cloudinary
+      if (video && video.video_public_id) {
+        await cloudinaryService.deleteVideo(video.video_public_id);
+      }
+
+      console.log('✅ Video deleted successfully');
+      return { message: 'Video deleted successfully' };
+    } catch (error) {
+      throw new Error('Failed to delete project video: ' + error.message);
+    }
+  }
+
+  // Reorder project videos
+  async reorderProjectVideos(projectId, videoIds) {
+    try {
+      console.log('🔄 Reordering project videos:', { projectId, videoIds });
+
+      const updates = videoIds.map((videoId, index) => ({
+        id: videoId,
+        order_index: index
+      }));
+
+      const { error } = await supabase
+        .from('portfolio_project_videos')
+        .upsert(updates, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      console.log('✅ Videos reordered successfully');
+      return { message: 'Videos reordered successfully' };
+    } catch (error) {
+      throw new Error('Failed to reorder project videos: ' + error.message);
+    }
+  }
+
+  // Bulk upload videos to project
+  async bulkUploadProjectVideos(projectId, videoFiles, videoData = {}) {
+    try {
+      console.log('📹 Bulk uploading videos to project:', { projectId, count: videoFiles.length });
+
+      const uploadedVideos = [];
+
+      for (let i = 0; i < videoFiles.length; i++) {
+        const videoFile = videoFiles[i];
+        const videoPayload = {
+          ...videoData,
+          order_index: videoData.order_index || i
+        };
+
+        const video = await this.uploadProjectVideo(projectId, videoFile, videoPayload);
+        uploadedVideos.push(video);
+      }
+
+      console.log('✅ Bulk video upload completed:', uploadedVideos.length);
+      return uploadedVideos;
+    } catch (error) {
+      throw new Error('Failed to bulk upload project videos: ' + error.message);
     }
   }
 }

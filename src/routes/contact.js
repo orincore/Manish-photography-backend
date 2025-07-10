@@ -33,12 +33,16 @@ router.get('/admin/export', contactController.exportContacts);
 router.get('/admin/:contactId', contactController.getContactSubmissionById);
 router.patch('/admin/:contactId/read', contactController.markAsRead);
 router.patch('/admin/:contactId/unread', contactController.markAsUnread);
+router.patch('/admin/:contactId/resolved', contactController.markAsResolved);
+router.patch('/admin/:contactId/waste', contactController.markAsWaste);
 router.delete('/admin/:contactId', contactController.deleteContactSubmission);
 
 router.get('/admin/search', contactController.searchContactSubmissions);
 router.get('/admin/email/:email', contactController.getContactsByEmail);
 
 router.post('/admin/bulk/read', contactController.bulkMarkAsRead);
+router.post('/admin/bulk/resolved', contactController.bulkMarkAsResolved);
+router.post('/admin/bulk/waste', contactController.bulkMarkAsWaste);
 router.post('/admin/bulk/delete', contactController.bulkDelete);
 
 module.exports = router; 

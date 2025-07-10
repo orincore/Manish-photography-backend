@@ -51,17 +51,69 @@ class HomepageController {
       const { type, title, subtitle, description, order_index, is_active, is_featured } = req.body;
       const mediaFile = req.file;
       
+      // Generate upload ID for progress tracking
+      const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Store upload info
+      global.activeUploads.set(uploadId, {
+        status: 'starting',
+        progress: 0,
+        message: 'Starting upload...'
+      });
+      
+      // Send initial progress after a small delay to allow client to join room
+      if (global.io) {
+        setTimeout(() => {
+          global.io.to(uploadId).emit('upload-progress', {
+            uploadId,
+            status: 'starting',
+            progress: 0,
+            message: 'Starting upload...'
+          });
+        }, 100);
+      }
+      
       const element = await homepageService.createHomepageElement(
         { type, title, subtitle, description, order_index, is_active, is_featured },
         req.user.id,
-        mediaFile
+        mediaFile,
+        uploadId
       );
+      
+      // Send completion
+      if (global.io) {
+        global.io.to(uploadId).emit('upload-progress', {
+          uploadId,
+          status: 'completed',
+          progress: 100,
+          message: 'Upload completed successfully',
+          element
+        });
+      }
+      
+      // Clean up after a delay to ensure message is sent
+      setTimeout(() => {
+        global.activeUploads.delete(uploadId);
+        console.log(`🧹 Cleaned up upload room: ${uploadId}`);
+      }, 1000);
       
       res.status(201).json({
         message: 'Homepage element created successfully',
-        element
+        element,
+        uploadId
       });
     } catch (error) {
+      // Send error to client
+      const uploadId = req.body.uploadId || (req.file ? `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : null);
+      if (global.io && uploadId) {
+        global.io.to(uploadId).emit('upload-progress', {
+          uploadId,
+          status: 'error',
+          progress: 0,
+          message: `Upload failed: ${error.message}`
+        });
+        global.activeUploads.delete(uploadId);
+      }
       next(error);
     }
   }

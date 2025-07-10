@@ -21,8 +21,9 @@ class VideoCompressionService {
       maxWidth = 1920,
       maxHeight = 1080,
       quality = 'medium',
-      removeAudio = true,
-      fps = 30
+      removeAudio = false, // Keep audio by default
+      fps = 30,
+      onProgress = null
     } = options;
 
     return new Promise((resolve, reject) => {
@@ -72,6 +73,13 @@ class VideoCompressionService {
         .on('progress', (progress) => {
           if (progress.percent) {
             console.log(`📈 Compression progress: ${progress.percent.toFixed(1)}%`);
+            if (onProgress) {
+              onProgress({
+                status: 'compressing',
+                progress: progress.percent,
+                message: `Compressing video: ${progress.percent.toFixed(1)}%`
+              });
+            }
           }
         })
         .on('end', () => {

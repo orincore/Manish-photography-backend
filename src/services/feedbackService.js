@@ -3,6 +3,7 @@ const { ValidationError, NotFoundError } = require('../middlewares/errorHandler'
 
 class FeedbackService {
   // Get all approved feedback (public)
+  // Get approved feedback (public) - only shows ratings >= 3
   async getApprovedFeedback(page = 1, limit = 10, projectId = null) {
     try {
       let query = supabase
@@ -14,6 +15,7 @@ class FeedbackService {
         `)
         .eq('is_approved', true)
         .eq('is_hidden', false)
+        .gte('rating', 3) // Only show ratings >= 3 publicly
         .order('created_at', { ascending: false });
 
       // Filter by project if provided
@@ -115,6 +117,8 @@ class FeedbackService {
     try {
       const { rating, comment, projectId } = feedbackData;
 
+      console.log('📝 Creating feedback:', { userId, rating, comment, projectId });
+
       // Validate rating
       if (rating < 1 || rating > 5) {
         throw new ValidationError('Rating must be between 1 and 5');
@@ -133,19 +137,39 @@ class FeedbackService {
         }
       }
 
-      // Compute unique key for user/project
-      const userProjectKey = projectId ? `${userId}-${projectId}` : userId;
+      // Check for existing feedback first
+      let existingQuery = supabase
+        .from('feedback')
+        .select('id, rating, comment, is_approved, created_at')
+        .eq('user_id', userId);
+      
+      if (projectId) {
+        existingQuery = existingQuery.eq('project_id', projectId);
+      } else {
+        existingQuery = existingQuery.is('project_id', null);
+      }
 
-      // Try to create feedback directly - let the unique constraint handle duplicates
-      let insertQuery = supabase
+      const { data: existingFeedback, error: existingError } = await existingQuery.maybeSingle();
+
+      if (existingFeedback) {
+        console.log('⚠️ Existing feedback found:', existingFeedback);
+        throw new ValidationError('You have already submitted feedback. You can edit or delete your existing feedback.', {
+          existingFeedback,
+          code: 'FEEDBACK_EXISTS'
+        });
+      }
+
+      console.log('✅ No existing feedback found, proceeding with creation');
+
+      // Create new feedback
+      const { data: feedback, error } = await supabase
         .from('feedback')
         .insert({
           user_id: userId,
           project_id: projectId || null,
-          user_project_key: userProjectKey,
           rating,
           comment,
-          is_approved: rating > 3, // Auto-approve if rating > 3
+          is_approved: rating > 2, // Auto-approve if rating > 2
           is_hidden: false
         })
         .select(`
@@ -155,39 +179,13 @@ class FeedbackService {
         `)
         .single();
 
-      const result = await insertQuery;
-
-      if (result.error) {
-        // Check for unique constraint violation on user_project_key
-        if (
-          result.error.code === '23505' ||
-          (result.error.message && result.error.message.includes('unique_user_project_key'))
-        ) {
-          // Fetch the existing feedback for this user/project
-          let fetchQuery = supabase
-            .from('feedback')
-            .select('id, rating, comment, is_approved, created_at')
-            .eq('user_id', userId);
-          if (projectId) {
-            fetchQuery = fetchQuery.eq('project_id', projectId);
-          } else {
-            fetchQuery = fetchQuery.is('project_id', null);
-          }
-          const { data: existingFeedback, error: fetchError } = await fetchQuery.single();
-
-          if (fetchError) {
-            throw new Error('Failed to fetch existing feedback: ' + fetchError.message);
-          }
-
-          throw new ValidationError('You have already submitted feedback. You can edit or delete your existing feedback.', {
-            existingFeedback,
-            code: 'FEEDBACK_EXISTS'
-          });
-        }
-        throw result.error;
+      if (error) {
+        console.error('❌ Database error:', error);
+        throw new Error('Failed to create feedback: ' + error.message);
       }
 
-      return result.data;
+      console.log('✅ Feedback created successfully:', feedback.id);
+      return feedback;
     } catch (error) {
       if (error.name === 'ValidationError') throw error;
       throw new Error('Failed to create feedback: ' + error.message);
@@ -197,6 +195,30 @@ class FeedbackService {
   // Update feedback (admin only)
   async updateFeedback(feedbackId, updateData) {
     try {
+      // If rating is being updated, apply auto-approval logic
+      if (updateData.rating !== undefined) {
+        // Get current feedback to check if rating is being changed
+        const { data: currentFeedback, error: fetchError } = await supabase
+          .from('feedback')
+          .select('rating, is_approved')
+          .eq('id', feedbackId)
+          .single();
+
+        if (fetchError) {
+          throw new Error('Failed to fetch current feedback: ' + fetchError.message);
+        }
+
+        // Validate rating
+        if (updateData.rating < 1 || updateData.rating > 5) {
+          throw new ValidationError('Rating must be between 1 and 5');
+        }
+
+        // Auto-approve if rating is more than 2 stars
+        updateData.is_approved = updateData.rating > 2;
+        
+        console.log(`📝 Admin updating feedback approval: rating=${updateData.rating}, auto-approved=${updateData.is_approved}`);
+      }
+
       const { data: feedback, error } = await supabase
         .from('feedback')
         .update(updateData)
@@ -212,6 +234,7 @@ class FeedbackService {
 
       return feedback;
     } catch (error) {
+      if (error.name === 'ValidationError') throw error;
       throw new Error('Failed to update feedback: ' + error.message);
     }
   }
@@ -236,8 +259,13 @@ class FeedbackService {
         throw new ValidationError('Rating must be between 1 and 5');
       }
 
-      // Reset approval status when user edits their feedback
-      updateData.is_approved = false;
+      // Determine the final rating (use updated rating if provided, otherwise keep existing)
+      const finalRating = updateData.rating !== undefined ? updateData.rating : existingFeedback.rating;
+      
+      // Auto-approve if rating is more than 2 stars
+      updateData.is_approved = finalRating > 2;
+      
+      console.log(`📝 Updating feedback approval: rating=${finalRating}, auto-approved=${updateData.is_approved}`);
 
       const { data: feedback, error } = await supabase
         .from('feedback')
@@ -354,7 +382,7 @@ class FeedbackService {
     }
   }
 
-  // Get feedback statistics
+  // Get feedback statistics (public - only counts ratings >= 3)
   async getFeedbackStats() {
     try {
       const { data: stats, error } = await supabase
@@ -368,16 +396,16 @@ class FeedbackService {
       const pendingFeedback = stats.filter(f => !f.is_approved && !f.is_hidden).length;
       const hiddenFeedback = stats.filter(f => f.is_hidden).length;
 
-      // Calculate average rating
-      const approvedRatings = stats.filter(f => f.is_approved && !f.is_hidden).map(f => f.rating);
-      const averageRating = approvedRatings.length > 0 
-        ? (approvedRatings.reduce((sum, rating) => sum + rating, 0) / approvedRatings.length).toFixed(1)
+      // Calculate average rating (only for publicly visible feedback - ratings >= 3)
+      const publicRatings = stats.filter(f => f.is_approved && !f.is_hidden && f.rating >= 3).map(f => f.rating);
+      const averageRating = publicRatings.length > 0 
+        ? (publicRatings.reduce((sum, rating) => sum + rating, 0) / publicRatings.length).toFixed(1)
         : 0;
 
-      // Rating distribution
+      // Rating distribution (only for publicly visible feedback)
       const ratingDistribution = {};
       for (let i = 1; i <= 5; i++) {
-        ratingDistribution[i] = approvedRatings.filter(rating => rating === i).length;
+        ratingDistribution[i] = publicRatings.filter(rating => rating === i).length;
       }
 
       return {
@@ -385,6 +413,7 @@ class FeedbackService {
         approvedFeedback,
         pendingFeedback,
         hiddenFeedback,
+        publicFeedback: publicRatings.length, // Count of publicly visible feedback
         averageRating: parseFloat(averageRating),
         ratingDistribution
       };
@@ -393,7 +422,50 @@ class FeedbackService {
     }
   }
 
-  // Get project feedback (public)
+  // Get admin feedback statistics (includes all feedback including low ratings)
+  async getAdminFeedbackStats() {
+    try {
+      const { data: stats, error } = await supabase
+        .from('feedback')
+        .select('rating, is_approved, is_hidden');
+
+      if (error) throw error;
+
+      const totalFeedback = stats.length;
+      const approvedFeedback = stats.filter(f => f.is_approved && !f.is_hidden).length;
+      const pendingFeedback = stats.filter(f => !f.is_approved && !f.is_hidden).length;
+      const hiddenFeedback = stats.filter(f => f.is_hidden).length;
+
+      // Calculate average rating (all approved feedback)
+      const approvedRatings = stats.filter(f => f.is_approved && !f.is_hidden).map(f => f.rating);
+      const averageRating = approvedRatings.length > 0 
+        ? (approvedRatings.reduce((sum, rating) => sum + rating, 0) / approvedRatings.length).toFixed(1)
+        : 0;
+
+      // Rating distribution (all approved feedback)
+      const ratingDistribution = {};
+      for (let i = 1; i <= 5; i++) {
+        ratingDistribution[i] = approvedRatings.filter(rating => rating === i).length;
+      }
+
+      // Low rating feedback (ratings < 3)
+      const lowRatingFeedback = stats.filter(f => f.is_approved && !f.is_hidden && f.rating < 3).length;
+
+      return {
+        totalFeedback,
+        approvedFeedback,
+        pendingFeedback,
+        hiddenFeedback,
+        lowRatingFeedback,
+        averageRating: parseFloat(averageRating),
+        ratingDistribution
+      };
+    } catch (error) {
+      throw new Error('Failed to get admin feedback statistics: ' + error.message);
+    }
+  }
+
+  // Get project feedback (public) - only shows ratings >= 3
   async getProjectFeedback(projectId, page = 1, limit = 10) {
     try {
       const { data: feedback, error, count } = await supabase
@@ -405,6 +477,7 @@ class FeedbackService {
         .eq('project_id', projectId)
         .eq('is_approved', true)
         .eq('is_hidden', false)
+        .gte('rating', 3) // Only show ratings >= 3 publicly
         .order('created_at', { ascending: false })
         .range((page - 1) * limit, page * limit - 1);
 
@@ -448,33 +521,50 @@ class FeedbackService {
     }
   }
 
-  // Get feedback with rating > 2, plus user's own feedback (for logged-in users)
+  // Get project feedback for logged-in users: ratings >= 3 + user's own feedback (including low ratings)
   async getProjectFeedbackWithUser(projectId, userId, page = 1, limit = 10) {
     try {
-      // Get feedback with rating > 2
-      const { data: feedbackAbove2, error: errorAbove2 } = await supabase
+      // Get public feedback (ratings >= 3)
+      const { data: publicFeedback, error: publicError } = await supabase
         .from('feedback')
         .select(`*, users(name, email)`)
         .eq('project_id', projectId)
-        .gt('rating', 2)
+        .eq('is_approved', true)
+        .eq('is_hidden', false)
+        .gte('rating', 3) // Only show ratings >= 3 publicly
         .order('created_at', { ascending: false });
-      if (errorAbove2) throw errorAbove2;
-      // Get user's own feedback (even if rating <= 2)
+      
+      if (publicError) throw publicError;
+      
+      // Get user's own feedback (including low ratings < 3)
       const { data: userFeedback, error: userError } = await supabase
         .from('feedback')
         .select(`*, users(name, email)`)
         .eq('project_id', projectId)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+      
       if (userError) throw userError;
-      // Merge, avoiding duplicates
+      
+      // Merge, avoiding duplicates (user's feedback takes precedence)
       const feedbackMap = new Map();
-      for (const fb of feedbackAbove2) feedbackMap.set(fb.id, fb);
-      for (const fb of userFeedback) feedbackMap.set(fb.id, fb);
+      
+      // Add public feedback first
+      for (const fb of publicFeedback) {
+        feedbackMap.set(fb.id, fb);
+      }
+      
+      // Add user's own feedback (this will override any duplicates)
+      for (const fb of userFeedback) {
+        feedbackMap.set(fb.id, fb);
+      }
+      
       const feedback = Array.from(feedbackMap.values());
+      
       // Pagination (manual, since merged)
       const total = feedback.length;
       const paged = feedback.slice((page - 1) * limit, page * limit);
+      
       return {
         feedback: paged,
         pagination: {
@@ -489,17 +579,21 @@ class FeedbackService {
     }
   }
 
-  // Get only feedback with rating > 2 (public)
+  // Get only feedback with rating >= 3 (public)
   async getProjectFeedbackPublic(projectId, page = 1, limit = 10) {
     try {
       const { data: feedback, error, count } = await supabase
         .from('feedback')
         .select(`*, users(name, email)`)
         .eq('project_id', projectId)
-        .gt('rating', 2)
+        .eq('is_approved', true)
+        .eq('is_hidden', false)
+        .gte('rating', 3) // Only show ratings >= 3 publicly
         .order('created_at', { ascending: false })
         .range((page - 1) * limit, page * limit - 1);
+      
       if (error) throw error;
+      
       return {
         feedback,
         pagination: {

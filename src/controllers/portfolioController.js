@@ -16,18 +16,28 @@ class PortfolioController {
         subcategory
       );
       
-      // Fetch images for each project
-      const projectsWithImages = await Promise.all((result.projects || []).map(async (project) => {
+      // Fetch images and videos for each project
+      const projectsWithMedia = await Promise.all((result.projects || []).map(async (project) => {
         const { data: images, error: imagesError } = await supabase
           .from('portfolio_project_images')
           .select('*')
-          .eq('project_id', project.id);
+          .eq('project_id', project.id)
+          .order('created_at', { ascending: true });
         if (imagesError) throw imagesError;
-        return { ...project, images };
+
+        const { data: videos, error: videosError } = await supabase
+          .from('portfolio_project_videos')
+          .select('*')
+          .eq('project_id', project.id)
+          .eq('is_active', true)
+          .order('order_index', { ascending: true });
+        if (videosError) throw videosError;
+
+        return { ...project, images, videos };
       }));
       res.status(200).json({
         message: 'Projects fetched successfully',
-        projects: projectsWithImages,
+        projects: projectsWithMedia,
         pagination: result.pagination
       });
     } catch (error) {
@@ -139,6 +149,88 @@ class PortfolioController {
       });
     } catch (error) {
       console.error('Error in createProject:', error);
+      if (error instanceof SyntaxError) {
+        console.error('SyntaxError in tags field:', req.body.tags);
+      }
+      next(error);
+    }
+  }
+
+  // Create new project with mixed media (images and/or videos)
+  async createProjectWithMedia(req, res, next) {
+    try {
+      console.log('Incoming createProjectWithMedia request:');
+      console.log('req.body:', req.body);
+      console.log('req.files:', req.files);
+      
+      const { title, description, category, tags, isPublished, subcategoryId } = req.body;
+      const mediaFiles = req.files;
+      
+      if (!mediaFiles || mediaFiles.length === 0) {
+        throw new ValidationError('At least one media file (image or video) is required');
+      }
+      if (mediaFiles.length > 10) {
+        throw new ValidationError('You can upload a maximum of 10 media files');
+      }
+
+      // Separate images and videos
+      const imageFiles = mediaFiles.filter(file => file.mimetype.startsWith('image/'));
+      const videoFiles = mediaFiles.filter(file => file.mimetype.startsWith('video/'));
+
+      console.log(`Found ${imageFiles.length} images and ${videoFiles.length} videos`);
+
+      // Generate a snug from the selected category only
+      let generatedSnug = null;
+      if (category) {
+        generatedSnug = category
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '');
+      }
+      // Allow user to override snug if provided in the request
+      const snug = req.body.snug || generatedSnug;
+
+      const projectData = {
+        title,
+        description,
+        category,
+        tags: tags ? JSON.parse(tags) : [],
+        isPublished: isPublished === 'true',
+        snug
+      };
+
+      // Create project with images first
+      const project = await portfolioService.createProject(
+        projectData,
+        imageFiles,
+        req.user.id
+      );
+
+      // Upload videos if any
+      let uploadedVideos = [];
+      if (videoFiles.length > 0) {
+        console.log('Uploading videos to project...');
+        uploadedVideos = await portfolioService.bulkUploadProjectVideos(
+          project.id,
+          videoFiles,
+          {
+            video_autoplay: false,
+            video_loop: false,
+            order_index: 0
+          }
+        );
+      }
+      
+      // Get updated project with all media
+      const updatedProject = await portfolioService.getProjectById(project.id);
+      
+      res.status(201).json({
+        message: 'Project created successfully with mixed media',
+        project: updatedProject,
+        uploadedVideos: uploadedVideos
+      });
+    } catch (error) {
+      console.error('Error in createProjectWithMedia:', error);
       if (error instanceof SyntaxError) {
         console.error('SyntaxError in tags field:', req.body.tags);
       }
@@ -273,17 +365,13 @@ class PortfolioController {
     try {
       const categories = await portfolioService.getCategories();
       
-      if (!categories || categories.length === 0) {
-        return res.status(404).json({
-          message: 'No categories with images available'
-        });
-      }
-      
       res.status(200).json({
         message: 'Categories fetched successfully',
-        categories
+        categories: categories || [],
+        total: categories ? categories.length : 0
       });
     } catch (error) {
+      console.error('Error fetching categories:', error);
       next(error);
     }
   }
@@ -586,19 +674,169 @@ class PortfolioController {
       if (!projects || projects.length === 0) {
         return res.status(404).json({ message: 'No projects found for this slug' });
       }
-      // Fetch images for each project
-      const projectsWithImages = await Promise.all(projects.map(async (project) => {
+      // Fetch images and videos for each project
+      const projectsWithMedia = await Promise.all(projects.map(async (project) => {
         const { data: images, error: imagesError } = await supabase
           .from('portfolio_project_images')
           .select('*')
-          .eq('project_id', project.id);
+          .eq('project_id', project.id)
+          .order('created_at', { ascending: true });
         if (imagesError) throw imagesError;
-        return { ...project, images };
+
+        const { data: videos, error: videosError } = await supabase
+          .from('portfolio_project_videos')
+          .select('*')
+          .eq('project_id', project.id)
+          .eq('is_active', true)
+          .order('order_index', { ascending: true });
+        if (videosError) throw videosError;
+
+        return { ...project, images, videos };
       }));
       res.status(200).json({
         message: 'Projects fetched successfully',
         snug: subcategorySlug,
-        projects: projectsWithImages
+        projects: projectsWithMedia
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Upload video to project (admin only)
+  async uploadProjectVideo(req, res, next) {
+    try {
+      const { projectId } = req.params;
+      const videoFile = req.file;
+      const { 
+        video_autoplay, 
+        video_loop, 
+        video_poster, 
+        order_index 
+      } = req.body;
+
+      if (!videoFile) {
+        throw new ValidationError('Video file is required');
+      }
+
+      const videoData = {
+        video_autoplay: video_autoplay === 'true',
+        video_loop: video_loop === 'true',
+        video_poster: video_poster || null,
+        order_index: order_index ? parseInt(order_index) : 0
+      };
+
+      const video = await portfolioService.uploadProjectVideo(projectId, videoFile, videoData);
+      
+      res.status(201).json({
+        message: 'Video uploaded successfully',
+        video
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Get project videos (public)
+  async getProjectVideos(req, res, next) {
+    try {
+      const { projectId } = req.params;
+      
+      const videos = await portfolioService.getProjectVideos(projectId);
+      
+      res.status(200).json({
+        message: 'Project videos fetched successfully',
+        videos
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Update project video (admin only)
+  async updateProjectVideo(req, res, next) {
+    try {
+      const { videoId } = req.params;
+      const updateData = req.body;
+
+      const video = await portfolioService.updateProjectVideo(videoId, updateData);
+      
+      res.status(200).json({
+        message: 'Video updated successfully',
+        video
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Delete project video (admin only)
+  async deleteProjectVideo(req, res, next) {
+    try {
+      const { videoId } = req.params;
+      
+      await portfolioService.deleteProjectVideo(videoId);
+      
+      res.status(200).json({
+        message: 'Video deleted successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Reorder project videos (admin only)
+  async reorderProjectVideos(req, res, next) {
+    try {
+      const { projectId } = req.params;
+      const { videoIds } = req.body;
+
+      if (!Array.isArray(videoIds)) {
+        throw new ValidationError('videoIds must be an array');
+      }
+
+      await portfolioService.reorderProjectVideos(projectId, videoIds);
+      
+      res.status(200).json({
+        message: 'Videos reordered successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Bulk upload videos to project (admin only)
+  async bulkUploadProjectVideos(req, res, next) {
+    try {
+      const { projectId } = req.params;
+      const videoFiles = req.files;
+      const { 
+        video_autoplay, 
+        video_loop, 
+        video_poster, 
+        order_index 
+      } = req.body;
+
+      if (!videoFiles || videoFiles.length === 0) {
+        throw new ValidationError('At least one video file is required');
+      }
+
+      if (videoFiles.length > 10) {
+        throw new ValidationError('You can upload a maximum of 10 videos');
+      }
+
+      const videoData = {
+        video_autoplay: video_autoplay === 'true',
+        video_loop: video_loop === 'true',
+        video_poster: video_poster || null,
+        order_index: order_index ? parseInt(order_index) : 0
+      };
+
+      const videos = await portfolioService.bulkUploadProjectVideos(projectId, videoFiles, videoData);
+      
+      res.status(201).json({
+        message: 'Videos uploaded successfully',
+        videos
       });
     } catch (error) {
       next(error);

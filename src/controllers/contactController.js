@@ -5,14 +5,25 @@ class ContactController {
   // Create new contact submission (public)
   async createContactSubmission(req, res, next) {
     try {
-      const { name, email, phone, message } = req.body;
+      const { name, email, phone, location, message } = req.body;
+      
+      console.log('📝 Contact form submission request:', {
+        name,
+        email,
+        phone,
+        location,
+        message: message ? `${message.substring(0, 50)}...` : 'No message'
+      });
       
       const contact = await contactService.createContactSubmission({
         name,
         email,
         phone,
+        location,
         message
       });
+      
+      console.log('✅ Contact submission processed successfully');
       
       res.status(201).json({
         message: 'Contact form submitted successfully. We will get back to you soon!',
@@ -20,10 +31,12 @@ class ContactController {
           id: contact.id,
           name: contact.name,
           email: contact.email,
+          location: contact.location,
           created_at: contact.created_at
         }
       });
     } catch (error) {
+      console.error('❌ Error in contact submission:', error.message);
       next(error);
     }
   }
@@ -31,12 +44,13 @@ class ContactController {
   // Get all contact submissions (admin only)
   async getAllContactSubmissions(req, res, next) {
     try {
-      const { page = 1, limit = 10, status } = req.query;
+      const { page = 1, limit = 10, status, readStatus } = req.query;
       
       const result = await contactService.getAllContactSubmissions(
         parseInt(page),
         parseInt(limit),
-        status
+        status,
+        readStatus
       );
       
       res.status(200).json({
@@ -86,6 +100,38 @@ class ContactController {
       const { contactId } = req.params;
       
       const result = await contactService.markAsUnread(contactId);
+      
+      res.status(200).json({
+        message: result.message,
+        contact: result.contact
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Mark contact as resolved (admin only)
+  async markAsResolved(req, res, next) {
+    try {
+      const { contactId } = req.params;
+      
+      const result = await contactService.markAsResolved(contactId);
+      
+      res.status(200).json({
+        message: result.message,
+        contact: result.contact
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Mark contact as waste (admin only)
+  async markAsWaste(req, res, next) {
+    try {
+      const { contactId } = req.params;
+      
+      const result = await contactService.markAsWaste(contactId);
       
       res.status(200).json({
         message: result.message,
@@ -200,6 +246,44 @@ class ContactController {
       }
       
       const result = await contactService.bulkDelete(contactIds);
+      
+      res.status(200).json({
+        message: result.message
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Bulk mark as resolved (admin only)
+  async bulkMarkAsResolved(req, res, next) {
+    try {
+      const { contactIds } = req.body;
+      
+      if (!Array.isArray(contactIds) || contactIds.length === 0) {
+        throw new ValidationError('Contact IDs array is required');
+      }
+      
+      const result = await contactService.bulkMarkAsResolved(contactIds);
+      
+      res.status(200).json({
+        message: result.message
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Bulk mark as waste (admin only)
+  async bulkMarkAsWaste(req, res, next) {
+    try {
+      const { contactIds } = req.body;
+      
+      if (!Array.isArray(contactIds) || contactIds.length === 0) {
+        throw new ValidationError('Contact IDs array is required');
+      }
+      
+      const result = await contactService.bulkMarkAsWaste(contactIds);
       
       res.status(200).json({
         message: result.message

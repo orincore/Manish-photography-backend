@@ -63,25 +63,43 @@ class FeedbackController {
     try {
       const { rating, comment, projectId } = req.body;
       
+      console.log('📝 Creating feedback request:', {
+        userId: req.user.id,
+        rating,
+        comment,
+        projectId,
+        body: req.body
+      });
+      
       const feedback = await feedbackService.createFeedback(
         { rating, comment, projectId },
         req.user.id
       );
       
+      console.log('✅ Feedback created successfully:', feedback.id);
+      
+      // Determine message based on approval status
+      const message = feedback.is_approved 
+        ? 'Feedback submitted and automatically approved!'
+        : 'Feedback submitted successfully. It will be reviewed by admin.';
+      
       res.status(201).json({
-        message: 'Feedback submitted successfully. It will be reviewed by admin.',
+        message,
         feedback
       });
     } catch (error) {
+      console.error('❌ Error creating feedback:', error.message);
+      
       // Handle existing feedback error
       if (error.name === 'ValidationError' && error.details?.code === 'FEEDBACK_EXISTS') {
+        console.log('⚠️ Existing feedback found, returning 409');
         return res.status(409).json({
           error: {
             message: error.message,
             code: 'FEEDBACK_EXISTS',
             existingFeedback: error.details.existingFeedback,
             options: {
-              edit: `PUT /api/feedback/${error.details.existingFeedback.id}`,
+              edit: `PUT /api/feedback/${error.details.existingFeedback.id}/user`,
               delete: `DELETE /api/feedback/${error.details.existingFeedback.id}/user`
             }
           }
@@ -97,13 +115,29 @@ class FeedbackController {
       const { feedbackId } = req.params;
       const updateData = req.body;
       
+      console.log('📝 Admin updating feedback:', {
+        feedbackId,
+        updateData
+      });
+      
       const feedback = await feedbackService.updateFeedback(feedbackId, updateData);
       
+      // Determine message based on what was updated
+      let message = 'Feedback updated successfully';
+      if (updateData.rating !== undefined) {
+        message = feedback.is_approved 
+          ? 'Feedback updated and automatically approved due to high rating!'
+          : 'Feedback updated. Rating requires manual approval.';
+      }
+      
+      console.log('✅ Admin feedback update completed');
+      
       res.status(200).json({
-        message: 'Feedback updated successfully',
+        message,
         feedback
       });
     } catch (error) {
+      console.error('❌ Error in admin feedback update:', error.message);
       next(error);
     }
   }
@@ -114,17 +148,51 @@ class FeedbackController {
       const { feedbackId } = req.params;
       const { rating, comment } = req.body;
       
+      console.log('📝 Updating user feedback:', {
+        feedbackId,
+        userId: req.user.id,
+        rating,
+        comment,
+        body: req.body
+      });
+      
+      // Validate that at least one field is provided
+      if (rating === undefined && comment === undefined) {
+        console.log('❌ Validation failed: No fields provided');
+        return res.status(400).json({
+          error: {
+            message: 'At least one field (rating or comment) must be provided',
+            code: 'VALIDATION_ERROR'
+          }
+        });
+      }
+      
+      // Prepare update data with only provided fields
+      const updateData = {};
+      if (rating !== undefined) updateData.rating = rating;
+      if (comment !== undefined) updateData.comment = comment;
+      
+      console.log('📤 Update data:', updateData);
+      
       const feedback = await feedbackService.updateUserFeedback(
         feedbackId,
         req.user.id,
-        { rating, comment }
+        updateData
       );
       
+      console.log('✅ Feedback updated successfully');
+      
+      // Determine message based on approval status
+      const message = feedback.is_approved 
+        ? 'Your feedback has been updated and automatically approved!'
+        : 'Your feedback has been updated successfully. It will be reviewed by admin.';
+      
       res.status(200).json({
-        message: 'Your feedback has been updated successfully. It will be reviewed by admin.',
+        message,
         feedback
       });
     } catch (error) {
+      console.error('❌ Error updating feedback:', error.message);
       next(error);
     }
   }
@@ -209,6 +277,20 @@ class FeedbackController {
       
       res.status(200).json({
         message: 'Feedback statistics fetched successfully',
+        stats
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Get admin feedback statistics (includes all feedback including low ratings)
+  async getAdminFeedbackStats(req, res, next) {
+    try {
+      const stats = await feedbackService.getAdminFeedbackStats();
+      
+      res.status(200).json({
+        message: 'Admin feedback statistics fetched successfully',
         stats
       });
     } catch (error) {

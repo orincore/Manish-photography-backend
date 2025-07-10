@@ -1,5 +1,5 @@
 require('dotenv').config();
-const app = require('./app');
+const { app, server } = require('./app');
 
 const PORT = process.env.PORT || 3000;
 
@@ -15,8 +15,9 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Socket.IO server ready for real-time progress tracking`);
 });
 
 // Set server timeout for large file uploads

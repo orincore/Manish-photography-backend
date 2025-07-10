@@ -82,6 +82,7 @@ class CloudinaryService {
 
   // Upload video to Cloudinary (with automatic compression)
   async uploadVideo(file, options = {}) {
+    const { onProgress = null } = options;
     try {
       const uploadOptions = {
         folder: options.folder || 'photography-portfolio',
@@ -95,7 +96,9 @@ class CloudinaryService {
             crop: 'scale', 
             format: 'mp4',
             quality: 'auto:good',
-            bit_rate: '1000k'
+            bit_rate: '1000k',
+            audio_codec: 'aac',
+            audio_bitrate: '128k'
           },
           { 
             width: 1280, 
@@ -103,7 +106,9 @@ class CloudinaryService {
             crop: 'scale', 
             format: 'mp4',
             quality: 'auto:good',
-            bit_rate: '800k'
+            bit_rate: '800k',
+            audio_codec: 'aac',
+            audio_bitrate: '128k'
           },
           { 
             width: 854, 
@@ -111,7 +116,9 @@ class CloudinaryService {
             crop: 'scale', 
             format: 'mp4',
             quality: 'auto:good',
-            bit_rate: '500k'
+            bit_rate: '500k',
+            audio_codec: 'aac',
+            audio_bitrate: '128k'
           }
         ],
         eager_async: true,
@@ -135,11 +142,19 @@ class CloudinaryService {
         
         if (needsCompression) {
           console.log('🎬 Large video detected, applying compression...');
+          if (onProgress) {
+            onProgress({
+              status: 'compressing',
+              progress: 0,
+              message: 'Starting video compression...'
+            });
+          }
           try {
             const compressionResult = await videoCompressionService.compressVideoBuffer(file.buffer, {
               targetSizeMB: 50,
               quality: 'medium',
-              removeAudio: true
+              removeAudio: false, // Keep audio
+              onProgress: onProgress
             });
             uploadBuffer = compressionResult.buffer;
             console.log(`✅ Video compressed: ${compressionResult.originalSize}MB → ${compressionResult.compressedSize}MB`);
@@ -150,11 +165,37 @@ class CloudinaryService {
         }
 
         // Upload from buffer (multer memory storage)
+        if (onProgress) {
+          onProgress({
+            status: 'uploading',
+            progress: 0,
+            message: 'Starting upload to Cloudinary...'
+          });
+        }
+        
         result = await new Promise((resolve, reject) => {
-          cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
+          const uploadStream = cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
             if (error) reject(error);
             else resolve(result);
-          }).end(uploadBuffer);
+          });
+          
+          // Track upload progress
+          let uploadedBytes = 0;
+          const totalBytes = uploadBuffer.length;
+          
+          uploadStream.on('data', (chunk) => {
+            uploadedBytes += chunk.length;
+            if (onProgress) {
+              const progress = Math.min((uploadedBytes / totalBytes) * 100, 99);
+              onProgress({
+                status: 'uploading',
+                progress: progress,
+                message: `Uploading to Cloudinary: ${progress.toFixed(1)}%`
+              });
+            }
+          });
+          
+          uploadStream.end(uploadBuffer);
         });
       } else {
         // Upload from file path (multer disk storage)

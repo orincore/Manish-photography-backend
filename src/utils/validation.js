@@ -35,6 +35,7 @@ const contactSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be less than 50 characters'),
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10, 'Phone number must be at least 10 digits').max(15, 'Phone number must be less than 15 digits').optional(),
+  location: z.string().min(2, 'Location must be at least 2 characters').max(100, 'Location must be less than 100 characters').optional(),
   message: z.string().min(10, 'Message must be at least 10 characters').max(1000, 'Message must be less than 1000 characters'),
 });
 
@@ -46,8 +47,11 @@ const updateFeedbackSchema = z.object({
 
 // Update user feedback schema (client only)
 const updateUserFeedbackSchema = z.object({
-  rating: z.number().min(1, 'Rating must be at least 1').max(5, 'Rating must be at most 5'),
-  comment: z.string().min(10, 'Comment must be at least 10 characters').max(500, 'Comment must be less than 500 characters'),
+  rating: z.number().min(1, 'Rating must be at least 1').max(5, 'Rating must be at most 5').optional(),
+  comment: z.string().min(1, 'Comment is required').max(500, 'Comment must be less than 500 characters').optional(),
+}).refine((data) => data.rating !== undefined || data.comment !== undefined, {
+  message: 'At least one field (rating or comment) must be provided',
+  path: ['rating', 'comment']
 });
 
 // Pagination schema
