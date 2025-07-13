@@ -68,16 +68,6 @@ const validate = (schema) => (req, res, next) => {
 router.get('/featured', portfolioController.getFeaturedProjects);
 router.get('/published', portfolioController.getPublishedProjects);
 router.get('/categories', portfolioController.getCategories);
-// Public route to get all projects for a snug (by slug) -- must come before the old category route
-router.get('/categories/:subcategorySlug', portfolioController.getProjectsBySubcategorySlug);
-
-// Comment out or remove the old category route to avoid conflict
-// router.get('/categories/:categorySlug', portfolioController.getCategoryBySlug);
-router.get('/categories/:categorySlug/:subcategorySlug', portfolioController.getSubcategoryBySlug);
-router.get('/search', portfolioController.searchProjects);
-router.get('/tags', portfolioController.getProjectsByTags);
-router.get('/admin/all', portfolioController.getAllProjects);
-router.get('/admin/stats', portfolioController.getProjectStats);
 
 // CRUD routes for packages (move these above dynamic routes)
 router.get('/packages', portfolioController.getPackages);
@@ -86,17 +76,20 @@ router.get('/packages/:id', portfolioController.getPackageById);
 router.put('/packages/:id', portfolioController.updatePackage);
 router.delete('/packages/:id', portfolioController.deletePackage);
 
-// Public route to get only categories with projects (for client)
+// Specific category routes (must come before dynamic routes)
 router.get('/categories/with-projects', portfolioController.getCategoriesWithProjects);
-
-// Add this route for all categories
 router.get('/categories/all', portfolioController.getAllCategories);
-
-// Add this route for all categories with their projects (even if empty)
 router.get('/categories/with-projects-all', portfolioController.getAllCategoriesWithProjects);
-
-// Add this route for all categories with their projects (even if empty)
 router.get('/cat/all', portfolioController.getAllCategoriesWithProjects);
+
+// Dynamic category routes (must come after specific routes)
+router.get('/categories/:subcategorySlug', portfolioController.getProjectsBySubcategorySlug);
+router.get('/categories/:categorySlug/:subcategorySlug', portfolioController.getSubcategoryBySlug);
+
+router.get('/search', portfolioController.searchProjects);
+router.get('/tags', portfolioController.getProjectsByTags);
+router.get('/admin/all', portfolioController.getAllProjects);
+router.get('/admin/stats', portfolioController.getProjectStats);
 
 // Public route to get a single project by ID (must come after all specific routes)
 router.get('/:projectId', portfolioController.getProjectById);

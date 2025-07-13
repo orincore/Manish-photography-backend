@@ -70,11 +70,26 @@ try {
   process.exit(1);
 }
 
+// CORS configuration
+const corsOptions = {
+  origin: [
+    'https://manishbosephotography.com',
+    'https://www.manishbosephotography.com',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:4173'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+};
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(morgan('dev'));
 
 // Increase timeout for all requests to 30 minutes (1800000 ms) for large video uploads
@@ -85,6 +100,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // Health check route
 app.get('/api/health', (req, res) => {
