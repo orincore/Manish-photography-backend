@@ -5,14 +5,15 @@ class ContactController {
   // Create new contact submission (public)
   async createContactSubmission(req, res, next) {
     try {
-      const { name, email, phone, location, message } = req.body;
+      const { name, email, phone, location, message, package_id } = req.body;
       
       console.log('📝 Contact form submission request:', {
         name,
         email,
         phone,
         location,
-        message: message ? `${message.substring(0, 50)}...` : 'No message'
+        message: message ? `${message.substring(0, 50)}...` : 'No message',
+        package_id
       });
       
       const contact = await contactService.createContactSubmission({
@@ -20,8 +21,12 @@ class ContactController {
         email,
         phone,
         location,
-        message
+        message,
+        package_id
       });
+      
+      // Fetch packages for the form
+      const packages = await require('../services/portfolioService').getPackages();
       
       console.log('✅ Contact submission processed successfully');
       
@@ -33,7 +38,8 @@ class ContactController {
           email: contact.email,
           location: contact.location,
           created_at: contact.created_at
-        }
+        },
+        packages: packages || []
       });
     } catch (error) {
       console.error('❌ Error in contact submission:', error.message);
@@ -53,9 +59,24 @@ class ContactController {
         readStatus
       );
       
+      // Attach package info to each contact if package_id exists
+      const portfolioService = require('../services/portfolioService');
+      const contactsWithPackages = await Promise.all((result.contacts || []).map(async (contact) => {
+        if (contact.package_id) {
+          try {
+            const pkg = await portfolioService.getPackageById(contact.package_id);
+            return { ...contact, package: pkg };
+          } catch {
+            return { ...contact, package: null };
+          }
+        }
+        return { ...contact, package: null };
+      }));
+      
       res.status(200).json({
         message: 'Contact submissions fetched successfully',
-        ...result
+        contacts: contactsWithPackages,
+        pagination: result.pagination
       });
     } catch (error) {
       next(error);

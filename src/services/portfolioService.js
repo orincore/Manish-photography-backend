@@ -467,71 +467,50 @@ class PortfolioService {
   // Get all categories (new hierarchical system)
   async getCategories() {
     try {
-      const { data: categories, error } = await supabase
-        .from('portfolio_categories')
-        .select(`
-          id,
-          name,
-          slug,
-          description,
-          display_order,
-          is_active,
-          created_at,
-          updated_at,
-          portfolio_subcategories(
-            id,
-            name,
-            slug,
-            description,
-            client_name,
-            event_date,
-            location,
-            cover_image_url,
-            display_order,
-            is_active,
-            created_at,
-            updated_at,
-            project_count:portfolio_projects(count)
-          )
-        `)
-        .eq('is_active', true)
-        .order('display_order', { ascending: true });
+      // Fetch all published projects with all details
+      const { data: projects, error } = await supabase
+        .from('portfolio_projects')
+        .select('*')
+        .eq('is_published', true)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      // Process categories and ensure proper data structure
-      const processedCategories = (categories || []).map(cat => ({
-        id: cat.id,
-        name: cat.name,
-        slug: cat.slug,
-        description: cat.description,
-        display_order: cat.display_order,
-        is_active: cat.is_active,
-        created_at: cat.created_at,
-        updated_at: cat.updated_at,
-        portfolio_subcategories: (cat.portfolio_subcategories || [])
-          .filter(sub => sub.is_active !== false) // Only active subcategories
-          .map(sub => ({
-            id: sub.id,
-            name: sub.name,
-            slug: sub.slug,
-            description: sub.description,
-            client_name: sub.client_name,
-            event_date: sub.event_date,
-            location: sub.location,
-            cover_image_url: sub.cover_image_url,
-            display_order: sub.display_order,
-            is_active: sub.is_active,
-            created_at: sub.created_at,
-            updated_at: sub.updated_at,
-            project_count: Array.isArray(sub.project_count) 
-              ? (sub.project_count[0]?.count || 0)
-              : (sub.project_count || 0)
-          }))
-          .sort((a, b) => a.display_order - b.display_order)
+      // Fetch all videos for these projects in one query
+      const projectIds = (projects || []).map(p => p.id);
+      let videosByProject = {};
+      if (projectIds.length > 0) {
+        const { data: allVideos, error: videosError } = await supabase
+          .from('portfolio_project_videos')
+          .select('*')
+          .in('project_id', projectIds)
+          .eq('is_active', true)
+          .order('order_index', { ascending: true });
+        if (videosError) throw videosError;
+        // Group videos by project_id
+        videosByProject = (allVideos || []).reduce((acc, video) => {
+          if (!acc[video.project_id]) acc[video.project_id] = [];
+          acc[video.project_id].push({
+            video_url: video.video_url,
+            video_public_id: video.video_public_id,
+            video_thumbnail_url: video.video_thumbnail_url,
+            video_duration: video.video_duration,
+            video_autoplay: video.video_autoplay,
+            video_loop: video.video_loop,
+            video_poster: video.video_poster,
+            order_index: video.order_index
+          });
+          return acc;
+        }, {});
+      }
+
+      // Attach videos array to each project
+      const projectsWithVideos = (projects || []).map(project => ({
+        ...project,
+        videos: videosByProject[project.id] || []
       }));
 
-      return processedCategories;
+      return projectsWithVideos;
     } catch (error) {
       throw new Error('Failed to fetch categories: ' + error.message);
     }
@@ -1134,6 +1113,147 @@ class PortfolioService {
     } catch (error) {
       throw new Error('Failed to bulk upload project videos: ' + error.message);
     }
+  }
+
+  async getAllCategories() {
+    try {
+      const { data: categories, error } = await supabase
+        .from('portfolio_categories')
+        .select('*')
+        .order('display_order', { ascending: true });
+      if (error) throw error;
+      return categories || [];
+    } catch (error) {
+      throw new Error('Failed to fetch all categories: ' + error.message);
+    }
+  }
+
+  async getAllCategoriesWithProjects() {
+    try {
+      // Fetch all categories
+      const { data: categories, error: catError } = await supabase
+        .from('portfolio_categories')
+        .select('*')
+        .order('display_order', { ascending: true });
+      if (catError) throw catError;
+
+      // Fetch all published projects
+      const { data: projects, error: projError } = await supabase
+        .from('portfolio_projects')
+        .select('*')
+        .eq('is_published', true);
+      if (projError) throw projError;
+
+      // Fetch all videos for these projects
+      const projectIds = (projects || []).map(p => p.id);
+      let videosByProject = {};
+      if (projectIds.length > 0) {
+        const { data: allVideos, error: videosError } = await supabase
+          .from('portfolio_project_videos')
+          .select('*')
+          .in('project_id', projectIds)
+          .eq('is_active', true)
+          .order('order_index', { ascending: true });
+        if (videosError) throw videosError;
+        videosByProject = (allVideos || []).reduce((acc, video) => {
+          if (!acc[video.project_id]) acc[video.project_id] = [];
+          acc[video.project_id].push({
+            video_url: video.video_url,
+            video_public_id: video.video_public_id,
+            video_thumbnail_url: video.video_thumbnail_url,
+            video_duration: video.video_duration,
+            video_autoplay: video.video_autoplay,
+            video_loop: video.video_loop,
+            video_poster: video.video_poster,
+            order_index: video.order_index
+          });
+          return acc;
+        }, {});
+      }
+
+      // Attach projects (with videos) to each category
+      const categoriesWithProjects = (categories || []).map(cat => {
+        // Match projects by category slug (prefer), fallback to name
+        const catProjects = (projects || []).filter(p =>
+          p.category === cat.slug || p.category === cat.name
+        ).map(project => ({
+          ...project,
+          videos: videosByProject[project.id] || []
+        }));
+        return {
+          ...cat,
+          projects: catProjects
+        };
+      });
+
+      return categoriesWithProjects;
+    } catch (error) {
+      throw new Error('Failed to fetch all categories with projects: ' + error.message);
+    }
+  }
+
+  // CRUD for packages
+  async createPackage(data) {
+    const { name, color, features, note, display_order } = data;
+    const { data: pkg, error } = await supabase
+      .from('packages')
+      .insert({
+        name,
+        color,
+        features,
+        note,
+        display_order: display_order || 0
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return pkg;
+  }
+
+  async getPackages() {
+    const { data: pkgs, error } = await supabase
+      .from('packages')
+      .select('*')
+      .order('display_order', { ascending: true });
+    if (error) throw error;
+    return pkgs || [];
+  }
+
+  async getPackageById(id) {
+    const { data: pkg, error } = await supabase
+      .from('packages')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return pkg;
+  }
+
+  async updatePackage(id, data) {
+    const { name, color, features, note, display_order } = data;
+    const { data: pkg, error } = await supabase
+      .from('packages')
+      .update({
+        name,
+        color,
+        features,
+        note,
+        display_order
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return pkg;
+  }
+
+  async deletePackage(id) {
+    const { error } = await supabase
+      .from('packages')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return { message: 'Package deleted successfully' };
   }
 }
 

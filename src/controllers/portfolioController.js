@@ -363,15 +363,15 @@ class PortfolioController {
   // Get all categories (public)
   async getCategories(req, res, next) {
     try {
-      const categories = await portfolioService.getCategories();
+      const projects = await portfolioService.getCategories();
       
       res.status(200).json({
-        message: 'Categories fetched successfully',
-        categories: categories || [],
-        total: categories ? categories.length : 0
+        message: 'Projects fetched successfully',
+        projects: projects || [],
+        total: projects ? projects.length : 0
       });
     } catch (error) {
-      console.error('Error fetching categories:', error);
+      console.error('Error fetching projects:', error);
       next(error);
     }
   }
@@ -841,6 +841,80 @@ class PortfolioController {
     } catch (error) {
       next(error);
     }
+  }
+
+  async getAllCategories(req, res, next) {
+    try {
+      const categories = await portfolioService.getAllCategories();
+      res.status(200).json({
+        message: 'All categories fetched successfully',
+        categories: categories || [],
+        total: categories ? categories.length : 0
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAllCategoriesWithProjects(req, res, next) {
+    try {
+      const categories = await portfolioService.getAllCategoriesWithProjects();
+      res.status(200).json({
+        message: 'Categories with projects fetched successfully',
+        categories: categories || [],
+        total: categories ? categories.length : 0
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPackages(req, res, next) {
+    try {
+      const pkgs = await portfolioService.getPackages();
+      res.status(200).json({ message: 'Packages fetched successfully', packages: pkgs, total: pkgs.length });
+    } catch (error) { next(error); }
+  }
+
+  async getPackageById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const pkg = await portfolioService.getPackageById(id);
+      res.status(200).json({ message: 'Package fetched successfully', package: pkg });
+    } catch (error) { next(error); }
+  }
+
+  async updatePackage(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { name, color, features, note, display_order } = req.body;
+      let featuresArr = features;
+      if (typeof features === 'string') {
+        try { featuresArr = JSON.parse(features); } catch { featuresArr = features.split(',').map(f => f.trim()); }
+      }
+      const pkg = await portfolioService.updatePackage(id, { name, color, features: featuresArr, note, display_order });
+      res.status(200).json({ message: 'Package updated successfully', package: pkg });
+    } catch (error) { next(error); }
+  }
+
+  async deletePackage(req, res, next) {
+    try {
+      const { id } = req.params;
+      const result = await portfolioService.deletePackage(id);
+      res.status(200).json(result);
+    } catch (error) { next(error); }
+  }
+
+  async createPackage(req, res, next) {
+    try {
+      const { name, color, features, note, display_order } = req.body;
+      let featuresArr = features;
+      if (typeof features === 'string') {
+        try { featuresArr = JSON.parse(features); } catch { featuresArr = features.split(',').map(f => f.trim()); }
+      }
+      const pkg = await portfolioService.createPackage({ name, color, features: featuresArr, note, display_order });
+      res.status(201).json({ message: 'Package created successfully', package: pkg });
+    } catch (error) { next(error); }
   }
 }
 

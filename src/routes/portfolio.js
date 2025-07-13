@@ -78,9 +78,26 @@ router.get('/search', portfolioController.searchProjects);
 router.get('/tags', portfolioController.getProjectsByTags);
 router.get('/admin/all', portfolioController.getAllProjects);
 router.get('/admin/stats', portfolioController.getProjectStats);
-router.get('/:projectId', portfolioController.getProjectById);
+
+// CRUD routes for packages (move these above dynamic routes)
+router.get('/packages', portfolioController.getPackages);
+router.post('/packages', portfolioController.createPackage);
+router.get('/packages/:id', portfolioController.getPackageById);
+router.put('/packages/:id', portfolioController.updatePackage);
+router.delete('/packages/:id', portfolioController.deletePackage);
+
 // Public route to get only categories with projects (for client)
 router.get('/categories/with-projects', portfolioController.getCategoriesWithProjects);
+
+// Add this route for all categories
+router.get('/categories/all', portfolioController.getAllCategories);
+
+// Add this route for all categories with their projects (even if empty)
+router.get('/categories/with-projects-all', portfolioController.getAllCategoriesWithProjects);
+
+// Add this route for all categories with their projects (even if empty)
+router.get('/cat/all', portfolioController.getAllCategoriesWithProjects);
+
 
 // Helper to wrap async middleware for Express compatibility
 function asyncHandler(fn) {

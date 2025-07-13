@@ -122,10 +122,23 @@ class HomepageController {
   async updateHomepageElement(req, res, next) {
     try {
       const { id } = req.params;
-      const updateData = req.body;
-      
+      const updateData = { ...req.body };
+      // Remove media_file if present (should not be sent to DB)
+      if (updateData.media_file) delete updateData.media_file;
+      // If a file is uploaded, update media separately
+      if (req.file) {
+        const element = await homepageService.updateElementMedia(id, req.file);
+        // Then update other fields if any
+        if (Object.keys(updateData).length > 0) {
+          await homepageService.updateHomepageElement(id, updateData);
+        }
+        res.status(200).json({
+          message: 'Homepage element updated successfully',
+          element
+        });
+        return;
+      }
       const element = await homepageService.updateHomepageElement(id, updateData);
-      
       res.status(200).json({
         message: 'Homepage element updated successfully',
         element

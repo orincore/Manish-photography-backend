@@ -1,0 +1,102 @@
+{
+  "info": {
+    "_postman_id": "team-api-collection-001",
+    "name": "Team API (Manish Photography)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for testing the Team API endpoints (CRUD)"
+  },
+  "item": [
+    {
+      "name": "Get All Team Members",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/team",
+          "host": ["{{base_url}}"],
+          "path": ["api", "team"]
+        }
+      }
+    },
+    {
+      "name": "Get Team Member By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/team/:id",
+          "host": ["{{base_url}}"],
+          "path": ["api", "team", ":id"]
+        }
+      }
+    },
+    {
+      "name": "Create Team Member (Admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{admin_token}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "name", "value": "John Doe", "type": "text" },
+            { "key": "role", "value": "Photographer", "type": "text" },
+            { "key": "bio", "value": "Expert in wedding photography.", "type": "text" },
+            { "key": "order_index", "value": "1", "type": "text" },
+            { "key": "is_active", "value": "true", "type": "text" },
+            { "key": "photo", "type": "file" }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/team",
+          "host": ["{{base_url}}"],
+          "path": ["api", "team"]
+        }
+      }
+    },
+    {
+      "name": "Update Team Member (Admin)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{admin_token}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "name", "value": "Jane Doe", "type": "text" },
+            { "key": "role", "value": "Lead Editor", "type": "text" },
+            { "key": "bio", "value": "Specializes in photo editing.", "type": "text" },
+            { "key": "order_index", "value": "2", "type": "text" },
+            { "key": "is_active", "value": "true", "type": "text" },
+            { "key": "photo", "type": "file" }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/team/:id",
+          "host": ["{{base_url}}"],
+          "path": ["api", "team", ":id"]
+        }
+      }
+    },
+    {
+      "name": "Delete Team Member (Admin)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{admin_token}}", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/team/:id",
+          "host": ["{{base_url}}"],
+          "path": ["api", "team", ":id"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000" },
+    { "key": "admin_token", "value": "<your_admin_jwt_token>" }
+  ]
+} 

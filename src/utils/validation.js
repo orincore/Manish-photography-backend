@@ -74,15 +74,15 @@ const categorySchema = z.object({
 
 // Homepage element schemas
 const homepageElementSchema = z.object({
-  type: z.enum(['hero', 'featured', 'instagram', 'about', 'gallery', 'testimonial', 'service', 'contact', 'hero-video', 'featured-video'], {
-    errorMap: () => ({ message: 'Type must be one of: hero, featured, instagram, about, gallery, testimonial, service, contact, hero-video, featured-video' })
+  type: z.enum(['hero', 'featured', 'instagram', 'about', 'our-story', 'gallery', 'testimonial', 'service', 'contact', 'hero-video', 'featured-video'], {
+    errorMap: () => ({ message: 'Type must be one of: hero, featured, instagram, about, our-story, gallery, testimonial, service, contact, hero-video, featured-video' })
   }),
   title: z.string().max(255, 'Title must be less than 255 characters').optional(),
   subtitle: z.string().max(500, 'Subtitle must be less than 500 characters').optional(),
   description: z.string().max(2000, 'Description must be less than 2000 characters').optional(),
   order_index: z.string().transform(val => val ? parseInt(val) : undefined).pipe(z.number().min(0, 'Order index must be non-negative')).optional(),
-  is_active: z.string().transform(val => val === 'true').pipe(z.boolean()).optional(),
-  is_featured: z.string().transform(val => val === 'true').pipe(z.boolean()).optional(),
+  is_active: z.preprocess(val => val === 'true' ? true : val === 'false' ? false : val, z.boolean().optional()),
+  is_featured: z.preprocess(val => val === 'true' ? true : val === 'false' ? false : val, z.boolean().optional()),
   video_autoplay: z.string().transform(val => val === 'true').pipe(z.boolean()).optional(),
   video_muted: z.string().transform(val => val === 'true').pipe(z.boolean()).optional(),
   video_loop: z.string().transform(val => val === 'true').pipe(z.boolean()).optional(),
@@ -94,8 +94,8 @@ const updateHomepageElementSchema = z.object({
   subtitle: z.string().max(500, 'Subtitle must be less than 500 characters').optional(),
   description: z.string().max(2000, 'Description must be less than 2000 characters').optional(),
   order_index: z.number().min(0, 'Order index must be non-negative').optional(),
-  is_active: z.boolean().optional(),
-  is_featured: z.boolean().optional(),
+  is_active: z.preprocess(val => val === 'true' ? true : val === 'false' ? false : val, z.boolean().optional()),
+  is_featured: z.preprocess(val => val === 'true' ? true : val === 'false' ? false : val, z.boolean().optional()),
   video_autoplay: z.boolean().optional(),
   video_muted: z.boolean().optional(),
   video_loop: z.boolean().optional(),

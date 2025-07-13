@@ -71,11 +71,11 @@ try {
 }
 
 // Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Increase timeout for all requests to 30 minutes (1800000 ms) for large video uploads
 app.use((req, res, next) => {
@@ -98,6 +98,7 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/homepage', homepageRoutes);
+app.use('/api/team', require('./routes/team'));
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

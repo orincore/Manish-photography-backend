@@ -5,9 +5,9 @@ class ContactService {
   // Create new contact submission (public)
   async createContactSubmission(contactData) {
     try {
-      const { name, email, phone, location, message } = contactData;
+      const { name, email, phone, location, message, package_id } = contactData;
 
-      console.log('📝 Creating contact submission:', { name, email, phone, location, message });
+      console.log('📝 Creating contact submission:', { name, email, phone, location, message, package_id });
 
       // Create contact submission
       const { data: contact, error } = await supabase
@@ -18,6 +18,7 @@ class ContactService {
           phone: phone || null,
           location: location || null,
           message,
+          package_id: package_id || null,
           is_read: false
         })
         .select('*')
