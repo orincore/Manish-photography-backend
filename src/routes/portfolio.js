@@ -98,6 +98,8 @@ router.get('/categories/with-projects-all', portfolioController.getAllCategories
 // Add this route for all categories with their projects (even if empty)
 router.get('/cat/all', portfolioController.getAllCategoriesWithProjects);
 
+// Public route to get a single project by ID (must come after all specific routes)
+router.get('/:projectId', portfolioController.getProjectById);
 
 // Helper to wrap async middleware for Express compatibility
 function asyncHandler(fn) {
