@@ -92,6 +92,7 @@ router.get('/admin/all', portfolioController.getAllProjects);
 router.get('/admin/stats', portfolioController.getProjectStats);
 
 // Public route to get a single project by ID (must come after all specific routes)
+router.get('/project/:projectId', portfolioController.getProjectById);
 router.get('/:projectId', portfolioController.getProjectById);
 
 // Helper to wrap async middleware for Express compatibility
