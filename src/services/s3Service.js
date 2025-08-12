@@ -35,7 +35,8 @@ class S3Service {
         Key: key,
         Body: processedBuffer,
         ContentType: file.mimetype || 'image/jpeg',
-        ACL: 'public-read'
+        // Removed ACL as it's not allowed with bucket settings
+        // Using bucket policy for public access instead
       };
 
       const result = await s3.upload(uploadParams).promise();
@@ -148,7 +149,7 @@ class S3Service {
         Key: key,
         Body: uploadBuffer,
         ContentType: file.mimetype || 'video/mp4',
-        ACL: 'public-read'
+        // Using bucket policy for public access instead of ACLs
       };
 
       const result = await s3.upload(uploadParams).promise();
@@ -189,7 +190,7 @@ class S3Service {
         Key: key,
         Body: processedBuffer,
         ContentType: 'image/jpeg',
-        ACL: 'public-read'
+        // Using bucket policy for public access instead of ACLs
       };
 
       const result = await s3.upload(uploadParams).promise();
