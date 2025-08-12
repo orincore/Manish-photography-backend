@@ -1,5 +1,5 @@
 const { supabase } = require('../config');
-const cloudinaryService = require('./cloudinaryService');
+const s3Service = require('./s3Service');
 const { ValidationError, NotFoundError } = require('../middlewares/errorHandler');
 const sharp = require('sharp');
 
@@ -334,8 +334,8 @@ class PortfolioService {
             }
           }
           // Upload using the (possibly compressed) buffer
-          const imageResult = await cloudinaryService.uploadImage({ ...file, buffer });
-          const thumbnailUrl = cloudinaryService.generateThumbnailUrl(imageResult.publicId);
+          const imageResult = await s3Service.uploadImage({ ...file, buffer });
+          const thumbnailUrl = s3Service.generateThumbnailUrl(imageResult.publicId);
           imageResults.push({
             project_id: project.id,
             image_url: imageResult.url,
@@ -398,14 +398,14 @@ class PortfolioService {
         // Get current project to delete old image
         const currentProject = await this.getProjectById(projectId);
         
-        // Delete old image from Cloudinary
+        // Delete old image from S3
         if (currentProject.image_public_id) {
-          await cloudinaryService.deleteImage(currentProject.image_public_id);
+          await s3Service.deleteImage(currentProject.image_public_id);
         }
 
         // Upload new image
-        imageResult = await cloudinaryService.uploadImage(imageFile);
-        thumbnailUrl = cloudinaryService.generateThumbnailUrl(imageResult.publicId);
+        imageResult = await s3Service.uploadImage(imageFile);
+        thumbnailUrl = s3Service.generateThumbnailUrl(imageResult.publicId);
       }
 
       // Prepare update data
@@ -442,12 +442,12 @@ class PortfolioService {
   // Delete portfolio project
   async deleteProject(projectId) {
     try {
-      // Get project to delete image from Cloudinary
+      // Get project to delete image from S3
       const project = await this.getProjectById(projectId);
       
-      // Delete image from Cloudinary
+      // Delete image from S3
       if (project.image_public_id) {
-        await cloudinaryService.deleteImage(project.image_public_id);
+        await s3Service.deleteImage(project.image_public_id);
       }
 
       // Delete project from database
@@ -655,7 +655,7 @@ class PortfolioService {
 
       // Upload cover image if provided
       if (imageFile) {
-        const imageResult = await cloudinaryService.uploadImage(imageFile);
+        const imageResult = await s3Service.uploadImage(imageFile);
         coverImageUrl = imageResult.url;
         coverImagePublicId = imageResult.publicId;
       }
@@ -731,13 +731,15 @@ class PortfolioService {
           .eq('id', subcategoryId)
           .single();
 
-        // Delete old image from Cloudinary
+        if (error) throw error;
+
+        // Delete old image from S3
         if (currentSubcategory.data?.cover_image_public_id) {
-          await cloudinaryService.deleteImage(currentSubcategory.data.cover_image_public_id);
+          await s3Service.deleteImage(currentSubcategory.data.cover_image_public_id);
         }
 
         // Upload new image
-        const imageResult = await cloudinaryService.uploadImage(imageFile);
+        const imageResult = await s3Service.uploadImage(imageFile);
         coverImageUrl = imageResult.url;
         coverImagePublicId = imageResult.publicId;
       }
@@ -782,38 +784,24 @@ class PortfolioService {
     }
   }
 
-  // Delete category (admin only)
-  async deleteCategory(categoryId) {
-    try {
-      const { error } = await supabase
-        .from('portfolio_categories')
-        .delete()
-        .eq('id', categoryId);
-
-      if (error) throw error;
-
-      return { message: 'Category deleted successfully' };
-    } catch (error) {
-      throw new Error('Failed to delete category: ' + error.message);
-    }
-  }
-
   // Delete subcategory (admin only)
   async deleteSubcategory(subcategoryId) {
     try {
-      // Get subcategory to delete cover image from Cloudinary
-      const { data: subcategory } = await supabase
+      // Get subcategory to delete cover image from S3
+      const { data: subcategory, error } = await supabase
         .from('portfolio_subcategories')
         .select('cover_image_public_id')
         .eq('id', subcategoryId)
         .single();
 
-      // Delete cover image from Cloudinary
-      if (subcategory?.cover_image_public_id) {
-        await cloudinaryService.deleteImage(subcategory.cover_image_public_id);
+      if (error) throw error;
+
+      // Delete cover image from S3
+      if (subcategory.cover_image_public_id) {
+        await s3Service.deleteImage(subcategory.cover_image_public_id);
       }
 
-      const { error } = await supabase
+      const { error: deleteError } = await supabase
         .from('portfolio_subcategories')
         .delete()
         .eq('id', subcategoryId);
@@ -948,14 +936,14 @@ class PortfolioService {
         throw new NotFoundError('Project not found');
       }
 
-      // Upload video to Cloudinary
-      const videoResult = await cloudinaryService.uploadVideo(videoFile, {
+      // Upload video to S3
+      const videoResult = await s3Service.uploadVideo(videoFile, {
         resource_type: 'video',
         folder: 'portfolio-videos',
         ...videoData
       });
 
-      console.log('✅ Video uploaded to Cloudinary:', videoResult.publicId);
+      console.log('✅ Video uploaded to S3:', videoResult.publicId);
 
       // Get video duration
       const duration = Math.round(parseFloat(videoResult.duration || 0));
@@ -981,8 +969,8 @@ class PortfolioService {
         .single();
 
       if (insertError) {
-        // Clean up Cloudinary if database insert fails
-        await cloudinaryService.deleteVideo(videoResult.publicId);
+        // Clean up S3 if database insert fails
+        await s3Service.deleteVideo(videoResult.publicId);
         throw insertError;
       }
 
@@ -1055,9 +1043,9 @@ class PortfolioService {
 
       if (deleteError) throw deleteError;
 
-      // Delete from Cloudinary
+      // Delete from S3
       if (video && video.video_public_id) {
-        await cloudinaryService.deleteVideo(video.video_public_id);
+        await s3Service.deleteVideo(video.video_public_id);
       }
 
       console.log('✅ Video deleted successfully');

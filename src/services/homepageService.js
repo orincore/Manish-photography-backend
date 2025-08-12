@@ -1,5 +1,5 @@
 const { supabase } = require('../config');
-const cloudinaryService = require('./cloudinaryService');
+const s3Service = require('./s3Service');
 const { ValidationError, NotFoundError } = require('../middlewares/errorHandler');
 
 class HomepageService {
@@ -111,7 +111,7 @@ class HomepageService {
         isVideo = videoExtensions.includes(fileExtension);
 
         if (isVideo) {
-          uploadResult = await cloudinaryService.uploadVideo(mediaFile, { 
+          uploadResult = await s3Service.uploadVideo(mediaFile, { 
             folder: 'homepage-elements',
             onProgress: uploadId ? (progress) => {
               if (global.io) {
@@ -124,7 +124,7 @@ class HomepageService {
           });
           mediaType = 'video';
         } else {
-          uploadResult = await cloudinaryService.uploadImage(mediaFile, { 
+          uploadResult = await s3Service.uploadImage(mediaFile, { 
             folder: 'homepage-elements',
             maxWidth: 1920,
             maxHeight: 1080,
@@ -263,7 +263,7 @@ class HomepageService {
   // Delete homepage element
   async deleteHomepageElement(elementId) {
     try {
-      // Get element to delete media from Cloudinary
+      // Get element to delete media from S3
       const { data: element, error: fetchError } = await supabase
         .from('homepage_elements')
         .select('media_public_id')
@@ -282,12 +282,12 @@ class HomepageService {
 
       if (error) throw error;
 
-      // Delete media from Cloudinary if exists
+      // Delete media from S3 if exists
       if (element.media_public_id) {
         try {
-          await cloudinaryService.deleteImage(element.media_public_id);
-        } catch (cloudinaryError) {
-          console.error('Failed to delete media from Cloudinary:', cloudinaryError);
+          await s3Service.deleteImage(element.media_public_id);
+        } catch (s3Error) {
+          console.error('Failed to delete media from S3:', s3Error);
         }
       }
 
@@ -489,12 +489,12 @@ class HomepageService {
         throw new NotFoundError('Homepage element not found');
       }
 
-      // Delete old media from Cloudinary if exists
+      // Delete old media from S3 if exists
       if (currentElement.media_public_id) {
         try {
-          await cloudinaryService.deleteImage(currentElement.media_public_id);
-        } catch (cloudinaryError) {
-          console.error('Failed to delete old media from Cloudinary:', cloudinaryError);
+          await s3Service.deleteImage(currentElement.media_public_id);
+        } catch (s3Error) {
+          console.error('Failed to delete old media from S3:', s3Error);
         }
       }
 
@@ -505,9 +505,9 @@ class HomepageService {
 
       let uploadResult;
       if (isVideo) {
-        uploadResult = await cloudinaryService.uploadVideo(mediaFile, { folder: 'homepage-elements' });
+        uploadResult = await s3Service.uploadVideo(mediaFile, { folder: 'homepage-elements' });
       } else {
-        uploadResult = await cloudinaryService.uploadImage(mediaFile, { 
+        uploadResult = await s3Service.uploadImage(mediaFile, { 
           folder: 'homepage-elements',
           maxWidth: 1920,
           maxHeight: 1080,
@@ -582,9 +582,9 @@ class HomepageService {
 
         let uploadResult;
         if (isVideo) {
-          uploadResult = await cloudinaryService.uploadVideo(file, { folder: 'homepage-elements' });
+          uploadResult = await s3Service.uploadVideo(file, { folder: 'homepage-elements' });
         } else {
-          uploadResult = await cloudinaryService.uploadImage(file, { 
+          uploadResult = await s3Service.uploadImage(file, { 
             folder: 'homepage-elements',
             maxWidth: 1920,
             maxHeight: 1080,

@@ -1,9 +1,10 @@
 const supabase = require('./supabase');
-const cloudinary = require('./cloudinary');
+const { s3, bucketName } = require('./s3');
 const jwt = require('./jwt');
  
 module.exports = {
   supabase,
-  cloudinary,
+  s3,
+  bucketName,
   jwt,
 }; 

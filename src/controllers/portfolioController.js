@@ -1,7 +1,7 @@
 const portfolioService = require('../services/portfolioService');
 const { supabase } = require('../config');
 const { ValidationError } = require('../middlewares/errorHandler');
-const cloudinaryService = require('../services/cloudinaryService');
+const s3Service = require('../services/s3Service');
 
 class PortfolioController {
   // Get all published projects (public)
@@ -273,7 +273,7 @@ class PortfolioController {
   async deleteProject(req, res, next) {
     try {
       const { projectId } = req.params;
-      // Delete associated images from Cloudinary and DB
+      // Delete associated images from S3 and DB
       const { data: images } = await supabase
         .from('portfolio_project_images')
         .select('image_public_id')
@@ -281,7 +281,7 @@ class PortfolioController {
       if (images && images.length > 0) {
         for (const img of images) {
           if (img.image_public_id) {
-            try { await cloudinaryService.deleteImage(img.image_public_id); } catch (e) { /* ignore */ }
+            try { await s3Service.deleteImage(img.image_public_id); } catch (e) { /* ignore */ }
           }
         }
       }
@@ -309,9 +309,9 @@ class PortfolioController {
       if (imageError || !image) {
         return res.status(404).json({ message: 'Image not found for this project' });
       }
-      // Delete from Cloudinary
+      // Delete from S3
       if (image.image_public_id) {
-        try { await cloudinaryService.deleteImage(image.image_public_id); } catch (e) { /* ignore */ }
+        try { await s3Service.deleteImage(image.image_public_id); } catch (e) { /* ignore */ }
       }
       // Delete from DB
       const { error: dbError } = await supabase

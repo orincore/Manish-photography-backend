@@ -1,5 +1,5 @@
 const { supabase } = require('../config');
-const cloudinaryService = require('./cloudinaryService');
+const s3Service = require('./s3Service');
 const { ValidationError, NotFoundError } = require('../middlewares/errorHandler');
 
 class TeamService {
@@ -30,7 +30,7 @@ class TeamService {
   async createTeamMember(memberData, photoFile) {
     let photo_url = null;
     if (photoFile) {
-      const uploadResult = await cloudinaryService.uploadImage(photoFile, {
+      const uploadResult = await s3Service.uploadImage(photoFile, {
         folder: 'team-members',
         maxWidth: 800,
         maxHeight: 800,
@@ -52,7 +52,7 @@ class TeamService {
   async updateTeamMember(id, updateData, photoFile) {
     let photo_url = updateData.photo_url;
     if (photoFile) {
-      const uploadResult = await cloudinaryService.uploadImage(photoFile, {
+      const uploadResult = await s3Service.uploadImage(photoFile, {
         folder: 'team-members',
         maxWidth: 800,
         maxHeight: 800,
