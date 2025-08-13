@@ -1,4 +1,4 @@
-const { s3, bucketName } = require('../config/s3');
+const { s3, bucketName, getPublicUrl } = require('../config/s3');
 const { ValidationError } = require('../middlewares/errorHandler');
 const sharp = require('sharp');
 const videoCompressionService = require('./videoCompressionService');
@@ -43,7 +43,7 @@ class S3Service {
       
       return {
         publicId: key,
-        url: result.Location,
+        url: getPublicUrl(key),
         width: null, // S3 doesn't provide dimensions directly
         height: null,
         format: fileExtension,
@@ -159,13 +159,13 @@ class S3Service {
       
       return {
         publicId: key,
-        url: result.Location,
+        url: getPublicUrl(key),
         width: null, // S3 doesn't provide dimensions directly
         height: null,
         format: fileExtension,
         size: uploadBuffer.length,
         duration: null, // S3 doesn't provide duration directly
-        thumbnailUrl: thumbnailUrl
+        thumbnailUrl: getPublicUrl(thumbnailUrl.replace(`https://${bucketName}.s3.amazonaws.com/`, ''))
       };
     } catch (error) {
       throw new ValidationError('Failed to upload video: ' + error.message);
@@ -197,7 +197,7 @@ class S3Service {
 
       return {
         publicId: key,
-        url: result.Location,
+        url: getPublicUrl(key),
         width: null,
         height: null,
         format: 'jpg',
@@ -210,15 +210,15 @@ class S3Service {
 
   // Generate optimized URL (S3 doesn't have built-in transformations like Cloudinary)
   generateOptimizedUrl(publicId, options = {}) {
-    // For S3, we return the direct URL since we don't have transformation capabilities
-    return `https://${bucketName}.s3.amazonaws.com/${publicId}`;
+    // Use the CDN URL if configured, otherwise fall back to direct S3 URL
+    return getPublicUrl(publicId);
   }
 
   // Generate thumbnail URL (placeholder - in production you might want to use AWS Lambda for image processing)
   generateThumbnailUrl(publicId, width = 300, height = 200) {
-    // For now, return the original URL since S3 doesn't have built-in transformations
     // In production, you might want to implement thumbnail generation via AWS Lambda
-    return `https://${bucketName}.s3.amazonaws.com/${publicId}`;
+    // For now, return the original URL with CDN support
+    return getPublicUrl(publicId);
   }
 
   // Delete image from S3
@@ -256,8 +256,8 @@ class S3Service {
     try {
       // For S3, we'd need to download, process, and re-upload
       // This is a simplified implementation
-      const url = `https://${bucketName}.s3.amazonaws.com/${publicId}`;
-      console.warn('Watermark functionality not implemented for S3. Returning original URL:', url);
+      const url = getPublicUrl(publicId);
+      console.warn('Watermark functionality not implemented for S3. Returning URL:', url);
       return url;
     } catch (error) {
       throw new Error('Failed to add watermark: ' + error.message);
@@ -276,7 +276,7 @@ class S3Service {
       
       return {
         publicId: publicId,
-        url: `https://${bucketName}.s3.amazonaws.com/${publicId}`,
+        url: getPublicUrl(publicId),
         width: null, // S3 doesn't provide dimensions
         height: null,
         format: publicId.split('.').pop(),
